@@ -1,0 +1,17 @@
+# --- ENTORNOS VIRTUALES ---
+.venv/
+env/
+venv/
+ENV/
+
+# --- ARCHIVOS DE CONFIGURACIÓN Y CREDENCIALES ---
+.env
+*.env.local
+*.database.json
+
+# --- SISTEMA OPERATIVO Y VS CODE ---
+.vscode/
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
