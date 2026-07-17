@@ -11,6 +11,6 @@ Sistema administrativo premium a medida diseñado para la gestión de inventario
 * `/docs`: Documentación técnica, requisitos de negocio y diagramas.
 * `/app`: Código fuente del backend y frontend del sistema.
 
-## 🤝 Colaboradores
-* **Johany Andrés Gómez Mosquera** (Desarrollador Principal / Administrador)
-* **María Camila Rodríguez Quiroz** (Co-Administradora y Operaciones)
+## 🤝 Roles del Sistema
+* **Administrador Principal:** Control total de inventario, finanzas, socios y reportes.
+* **Colaboradores autorizados:** Gestión diaria de ventas, abonos y registro de garantías.
