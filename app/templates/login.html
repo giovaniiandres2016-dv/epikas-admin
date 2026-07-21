@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#050505] flex items-center justify-center h-screen">
+    <div class="bg-[#0a0a0a] p-10 border border-[#262118] w-96">
+        <h1 class="text-[#cda250] text-center font-bold mb-8">ÉPIKA</h1>
+        <div id="msg" class="text-red-900 text-center text-[10px] mb-4"></div>
+        <input id="u" placeholder="Usuario" class="w-full bg-transparent border-b border-[#262118] py-2 mb-4 text-white">
+        <input id="p" type="password" placeholder="Contraseña" class="w-full bg-transparent border-b border-[#262118] py-2 mb-6 text-white">
+        <button onclick="login()" class="w-full bg-[#cda250] text-black py-2 font-bold text-[10px] uppercase">Ingresar al sistema</button>
+    </div>
+    <script>
+        async function login() {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: document.getElementById('u').value, password: document.getElementById('p').value})
+            });
+            const data = await res.json();
+            if(res.ok) {
+                localStorage.setItem('token', data.token);
+                window.location.href = '/dashboard';
+            } else {
+                document.getElementById('msg').innerText = "Credenciales incorrectas.";
+            }
+        }
+    </script>
+</body>
+</html>

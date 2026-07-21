@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ÉPIKA - Panel de Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Montserrat:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Montserrat', sans-serif; background-color: #050505; }
+        .font-brand { font-family: 'Cinzel', serif; }
+    </style>
+</head>
+<body class="text-gray-300 flex h-screen overflow-hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-[#0a0a0a] border-r border-[#262118] flex flex-col justify-between">
+        <div>
+            <div class="p-6 border-b border-[#262118]">
+                <h1 class="text-2xl font-brand font-bold text-[#cda250] tracking-widest text-center">ÉPIKA</h1>
+                <p class="text-[9px] text-gray-500 text-center tracking-widest mt-1 uppercase">SISTEMA DE GESTIÓN</p>
+            </div>
+            <nav class="mt-6 px-4 space-y-2">
+                <button onclick="renderModulo('clientes')" id="btn-clientes" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
+                    <span>👥</span> Clientes
+                </button>
+                <button onclick="renderModulo('inventario')" id="btn-inventario" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
+                    <span>📦</span> Inventario
+                </button>
+                <button onclick="renderModulo('ventas')" id="btn-ventas" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
+                    <span>💳</span> Ventas y Cuentas
+                </button>
+            </nav>
+        </div>
+        <div class="p-4 border-t border-[#262118]">
+            <button onclick="logout()" class="w-full text-left px-4 py-2 text-xs text-red-500 hover:text-red-300 transition-all uppercase tracking-wider font-semibold">
+                🚪 Cerrar Sesión
+            </button>
+        </div>
+    </aside>
+
+    <!-- ÁREA PRINCIPAL -->
+    <main class="flex-1 flex flex-col overflow-y-auto">
+        <header class="p-6 border-b border-[#262118] bg-[#0a0a0a] flex justify-between items-center">
+            <h2 id="modulo-titulo" class="text-lg font-brand text-[#cda250] tracking-wider">CLIENTES</h2>
+            <div class="text-xs text-gray-500">
+                Usuario: <span id="username-display" class="text-white font-bold">Admin</span>
+            </div>
+        </header>
+
+        <section id="modulo-contenido" class="p-6 flex-1">
+            <!-- Contenido dinámico -->
+        </section>
+    </main>
+
+    <!-- JAVASCRIPT DEL PANEL -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/';
+                return;
+            }
+            document.getElementById('username-display').innerText = localStorage.getItem('username') || 'Usuario';
+            renderModulo('inventario');
+        });
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/';
+        }
+
+        async function fetchAPI(endpoint, method = 'GET', body = null) {
+            const token = localStorage.getItem('token');
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+            if (body) options.body = JSON.stringify(body);
+            
+            const res = await fetch(endpoint, options);
+            if (res.status === 401) logout();
+            return res.json();
+        }
+
+        async function renderModulo(nombre) {
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('text-[#cda250]', 'bg-[#121212]'));
+            const btn = document.getElementById(`btn-${nombre}`);
+            if(btn) btn.classList.add('text-[#cda250]', 'bg-[#121212]');
+            
+            document.getElementById('modulo-titulo').innerText = nombre.toUpperCase();
+            const contenedor = document.getElementById('modulo-contenido');
+            contenedor.innerHTML = '<p class="text-xs text-gray-500">Cargando...</p>';
+
+            if (nombre === 'clientes') {
+                const data = await fetchAPI('/api/clientes');
+                renderTablaClientes(data, contenedor);
+            } else if (nombre === 'inventario') {
+                const data = await fetchAPI('/api/inventario');
+                renderTablaInventario(data, contenedor);
+            } else if (nombre === 'ventas') {
+                const data = await fetchAPI('/api/ventas');
+                renderTablaVentas(data, contenedor);
+            }
+        }
+
+        function filtrarTabla(idInput, idTabla, colIndex) {
+            const query = document.getElementById(idInput).value.toLowerCase();
+            const filas = document.querySelectorAll(`#${idTabla} tbody tr`);
+            filas.forEach(f => {
+                const texto = f.children[colIndex].innerText.toLowerCase();
+                f.style.display = texto.includes(query) ? '' : 'none';
+            });
+        }
+
+        // --- MÓDULO CLIENTES ---
+        function renderTablaClientes(data, contenedor) {
+            contenedor.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <input type="text" id="buscador-cli" onkeyup="filtrarTabla('buscador-cli', 'tabla-clientes', 0)" placeholder="Buscar cliente por nombre..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
+                    <button onclick="abrirModalClienteNuevo()" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ NUEVO CLIENTE</button>
+                </div>
+                <table id="tabla-clientes" class="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                        <tr class="text-[#555] border-b border-[#262118]">
+                            <th class="pb-4">NOMBRE</th>
+                            <th class="pb-4">TELÉFONO</th>
+                            <th class="pb-4">CIUDAD</th>
+                            <th class="pb-4">TALLAS (C/C/J)</th>
+                            <th class="pb-4">COMPRAS</th>
+                            <th class="pb-4">TOTAL</th>
+                            <th class="pb-4">DEUDA</th>
+                            <th class="pb-4">ACCIONES</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-white">
+                        ${data.map(c => `
+                            <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
+                                <td class="py-4 font-bold">${c.nombre}</td>
+                                <td class="py-4 text-gray-400">${c.telefono}</td>
+                                <td class="py-4 text-gray-400">${c.ciudad}</td>
+                                <td class="py-4">${c.tallas}</td>
+                                <td class="py-4">${c.compras}</td>
+                                <td class="py-4 text-[#cda250] font-bold">$${c.monto.toLocaleString()}</td>
+                                <td class="py-4 ${c.deuda > 0 ? 'text-red-400 font-bold' : 'text-gray-500'}">$${c.deuda.toLocaleString()}</td>
+                                <td class="py-4 space-x-2">
+                                    <button onclick='abrirModalClienteEditar(${JSON.stringify(c)})' class="text-[#cda250] hover:underline">EDITAR</button>
+                                    <button onclick="borrarCliente(${c.id})" class="text-red-500 hover:text-red-300">BORRAR</button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <!-- MODAL CLIENTES -->
+                <div id="modal-cliente" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div class="bg-[#0a0a0a] p-8 w-[400px] border border-[#262118]">
+                        <h3 id="modal-cli-titulo" class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Nuevo Cliente</h3>
+                        <input type="hidden" id="cli-id">
+                        <input id="cli-nombre" placeholder="Nombre completo *" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
+                        <input id="cli-documento" placeholder="Documento / Cédula" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
+                        <input id="cli-telefono" placeholder="Teléfono / WhatsApp" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
+                        <input id="cli-ciudad" placeholder="Ciudad" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
+                        
+                        <div class="flex gap-2 mb-6">
+                            <input id="cli-calzado" placeholder="Calzado" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="cli-camiseta" placeholder="Camiseta" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="cli-jean" placeholder="Jean" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <button onclick="guardarCliente()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">GUARDAR CLIENTE</button>
+                        <button onclick="document.getElementById('modal-cliente').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
+                    </div>
+                </div>`;
+        }
+
+        function abrirModalClienteNuevo() {
+            document.getElementById('modal-cli-titulo').innerText = "Nuevo Cliente";
+            document.getElementById('cli-id').value = "";
+            document.getElementById('cli-nombre').value = "";
+            document.getElementById('cli-documento').value = "";
+            document.getElementById('cli-telefono').value = "";
+            document.getElementById('cli-ciudad').value = "";
+            document.getElementById('cli-calzado').value = "";
+            document.getElementById('cli-camiseta').value = "";
+            document.getElementById('cli-jean').value = "";
+            document.getElementById('modal-cliente').classList.remove('hidden');
+        }
+
+        function abrirModalClienteEditar(c) {
+            document.getElementById('modal-cli-titulo').innerText = "Editar Cliente";
+            document.getElementById('cli-id').value = c.id;
+            document.getElementById('cli-nombre').value = c.nombre;
+            document.getElementById('cli-documento').value = c.documento === 'S/D' ? '' : c.documento;
+            document.getElementById('cli-telefono').value = c.telefono === 'S/T' ? '' : c.telefono;
+            document.getElementById('cli-ciudad').value = c.ciudad === 'S/C' ? '' : c.ciudad;
+            document.getElementById('cli-calzado').value = c.talla_calzado;
+            document.getElementById('cli-camiseta').value = c.talla_camiseta;
+            document.getElementById('cli-jean').value = c.talla_jean;
+            document.getElementById('modal-cliente').classList.remove('hidden');
+        }
+
+        async function guardarCliente() {
+            const id = document.getElementById('cli-id').value;
+            const data = {
+                nombre: document.getElementById('cli-nombre').value,
+                documento: document.getElementById('cli-documento').value,
+                telefono: document.getElementById('cli-telefono').value,
+                ciudad: document.getElementById('cli-ciudad').value,
+                talla_calzado: document.getElementById('cli-calzado').value,
+                talla_camiseta: document.getElementById('cli-camiseta').value,
+                talla_jean: document.getElementById('cli-jean').value
+            };
+            
+            if(!data.nombre) return alert('El nombre es obligatorio.');
+
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/api/clientes/${id}` : '/api/clientes';
+            
+            await fetchAPI(url, method, data);
+            document.getElementById('modal-cliente').classList.add('hidden');
+            renderModulo('clientes');
+        }
+
+        async function borrarCliente(id) {
+            if(confirm('¿Deseas eliminar este cliente?')) {
+                await fetchAPI(`/api/clientes/${id}`, 'DELETE');
+                renderModulo('clientes');
+            }
+        }
+
+        // --- MÓDULO INVENTARIO ---
+        function renderTablaInventario(data, contenedor) {
+            contenedor.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <input type="text" id="buscador-inv" onkeyup="filtrarTabla('buscador-inv', 'tabla-inventario', 0)" placeholder="Buscar por nombre, marca o referencia..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
+                    <button onclick="abrirModalInventarioNuevo()" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ NUEVO PRODUCTO</button>
+                </div>
+                <table id="tabla-inventario" class="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                        <tr class="text-[#555] border-b border-[#262118]">
+                            <th class="pb-4">PRODUCTO (AUTOGENERADO)</th>
+                            <th class="pb-4">MARCA</th>
+                            <th class="pb-4">REF</th>
+                            <th class="pb-4">CATEGORÍA</th>
+                            <th class="pb-4">TALLA</th>
+                            <th class="pb-4">COLOR</th>
+                            <th class="pb-4">COSTO</th>
+                            <th class="pb-4">PRECIO VENTA</th>
+                            <th class="pb-4">STOCK</th>
+                            <th class="pb-4">ACCIONES</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-white">
+                        ${data.map(i => `
+                            <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
+                                <td class="py-4 font-bold text-[#cda250]">${i.nombre}</td>
+                                <td class="py-4 text-gray-400">${i.marca}</td>
+                                <td class="py-4 text-gray-400">${i.referencia}</td>
+                                <td class="py-4">${i.categoria}</td>
+                                <td class="py-4">${i.talla}</td>
+                                <td class="py-4">${i.color}</td>
+                                <td class="py-4 text-gray-500">$${i.precio_costo.toLocaleString()}</td>
+                                <td class="py-4 text-emerald-400 font-bold">$${i.precio_venta.toLocaleString()}</td>
+                                <td class="py-4">
+                                    <span class="px-2 py-1 text-[10px] font-bold rounded ${i.stock <= 2 ? 'bg-red-950 text-red-400 border border-red-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'}">
+                                        ${i.stock} unids
+                                    </span>
+                                </td>
+                                <td class="py-4 space-x-2">
+                                    <button onclick='abrirModalInventarioEditar(${JSON.stringify(i)})' class="text-[#cda250] hover:underline">EDITAR</button>
+                                    <button onclick="borrarProductoInventario(${i.id})" class="text-red-500 hover:text-red-300">BORRAR</button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <!-- MODAL INVENTARIO -->
+                <div id="modal-inventario" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div class="bg-[#0a0a0a] p-8 w-[420px] border border-[#262118]">
+                        <h3 id="modal-inv-titulo" class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Nuevo Producto</h3>
+                        <input type="hidden" id="inv-id">
+
+                        <!-- Marca y Referencia -->
+                        <div class="flex gap-4 mb-4">
+                            <input id="inv-marca" oninput="actualizarNombreProducto()" placeholder="Marca (Ej: Nike, ÉPIKA) *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="inv-referencia" oninput="actualizarNombreProducto()" placeholder="Referencia / SKU *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <!-- Talla y Color -->
+                        <div class="flex gap-4 mb-4">
+                            <input id="inv-talla" placeholder="Talla (Ej: 40, M)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="inv-color" oninput="actualizarNombreProducto()" placeholder="Color (Ej: Negro, Blanco)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <!-- Nombre Generado Automático (Read-only) -->
+                        <div class="mb-4">
+                            <label class="block text-[9px] text-[#555] uppercase mb-1">Nombre Calculado del Producto</label>
+                            <input id="inv-nombre" readonly placeholder="Se autogenera: Marca + Ref + Color" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-[#cda250] font-bold outline-none cursor-not-allowed">
+                        </div>
+                        
+                        <!-- Categoría -->
+                        <div class="mb-4">
+                            <label class="block text-[9px] text-[#555] uppercase mb-1">Categoría</label>
+                            <select id="inv-categoria" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none focus:border-[#cda250]">
+                                <option value="Calzado">Calzado</option>
+                                <option value="Ropa">Ropa</option>
+                                <option value="Accesorios">Accesorios</option>
+                            </select>
+                        </div>
+
+                        <!-- Precios -->
+                        <div class="flex gap-4 mb-4">
+                            <input id="inv-precio-costo" type="number" placeholder="Precio Costo ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="inv-precio-venta" type="number" placeholder="Precio Venta ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <!-- Stock -->
+                        <div class="mb-6">
+                            <label class="block text-[9px] text-[#555] uppercase mb-1">Stock Inicial</label>
+                            <input id="inv-stock" type="number" min="0" placeholder="0" class="w-full bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <button onclick="guardarProductoInventario()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">GUARDAR PRODUCTO</button>
+                        <button onclick="document.getElementById('modal-inventario').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
+                    </div>
+                </div>`;
+        }
+
+        // Función para autogenerar el Nombre: Marca + Referencia + Color
+        function actualizarNombreProducto() {
+            const marca = document.getElementById('inv-marca').value.trim();
+            const ref = document.getElementById('inv-referencia').value.trim();
+            const color = document.getElementById('inv-color').value.trim();
+            
+            const partes = [marca, ref, color].filter(Boolean);
+            document.getElementById('inv-nombre').value = partes.join(' ');
+        }
+
+        function abrirModalInventarioNuevo() {
+            document.getElementById('modal-inv-titulo').innerText = "Nuevo Producto";
+            document.getElementById('inv-id').value = "";
+            document.getElementById('inv-nombre').value = "";
+            document.getElementById('inv-marca').value = "";
+            document.getElementById('inv-referencia').value = "";
+            document.getElementById('inv-categoria').value = "Calzado";
+            document.getElementById('inv-talla').value = "";
+            document.getElementById('inv-color').value = "";
+            document.getElementById('inv-precio-costo').value = "";
+            document.getElementById('inv-precio-venta').value = "";
+            document.getElementById('inv-stock').value = "1";
+            document.getElementById('modal-inventario').classList.remove('hidden');
+        }
+
+        function abrirModalInventarioEditar(p) {
+            document.getElementById('modal-inv-titulo').innerText = "Editar Producto";
+            document.getElementById('inv-id').value = p.id;
+            document.getElementById('inv-marca').value = p.marca === '-' ? '' : p.marca;
+            document.getElementById('inv-referencia').value = p.referencia === 'S/R' ? '' : p.referencia;
+            document.getElementById('inv-color').value = p.color === '-' ? '' : p.color;
+            document.getElementById('inv-nombre').value = p.nombre;
+            document.getElementById('inv-categoria').value = p.categoria;
+            document.getElementById('inv-talla').value = p.talla === '-' ? '' : p.talla;
+            document.getElementById('inv-precio-costo').value = p.precio_costo;
+            document.getElementById('inv-precio-venta').value = p.precio_venta;
+            document.getElementById('inv-stock').value = p.stock;
+            document.getElementById('modal-inventario').classList.remove('hidden');
+        }
+
+        async function guardarProductoInventario() {
+            const id = document.getElementById('inv-id').value;
+            const data = {
+                nombre: document.getElementById('inv-nombre').value,
+                marca: document.getElementById('inv-marca').value,
+                referencia: document.getElementById('inv-referencia').value,
+                categoria: document.getElementById('inv-categoria').value,
+                talla: document.getElementById('inv-talla').value,
+                color: document.getElementById('inv-color').value,
+                precio_costo: document.getElementById('inv-precio-costo').value,
+                precio_venta: document.getElementById('inv-precio-venta').value,
+                stock: document.getElementById('inv-stock').value
+            };
+            
+            if(!data.marca || !data.referencia) return alert('La marca y la referencia son obligatorias.');
+
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/api/inventario/${id}` : '/api/inventario';
+            
+            await fetchAPI(url, method, data);
+            document.getElementById('modal-inventario').classList.add('hidden');
+            renderModulo('inventario');
+        }
+
+        async function borrarProductoInventario(id) {
+            if(confirm('¿Eliminar producto del inventario?')) {
+                await fetchAPI(`/api/inventario/${id}`, 'DELETE');
+                renderModulo('inventario');
+            }
+        }
+
+        // --- MÓDULO VENTAS ---
+        async function renderTablaVentas(data, contenedor) {
+            const clientes = await fetchAPI('/api/clientes');
+            const inventario = await fetchAPI('/api/inventario');
+
+            contenedor.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <input type="text" id="buscador-ven" onkeyup="filtrarTabla('buscador-ven', 'tabla-ventas', 1)" placeholder="Buscar venta por cliente..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
+                    <button onclick="abrirModalVenta()" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ REGISTRAR VENTA</button>
+                </div>
+                <table id="tabla-ventas" class="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                        <tr class="text-[#555] border-b border-[#262118]">
+                            <th class="pb-4">FECHA</th>
+                            <th class="pb-4">CLIENTE</th>
+                            <th class="pb-4">DESCRIPCIÓN</th>
+                            <th class="pb-4">VALOR TOTAL</th>
+                            <th class="pb-4">ABONADO</th>
+                            <th class="pb-4">SALDO DEUDA</th>
+                            <th class="pb-4">ESTADO</th>
+                            <th class="pb-4">ACCIONES</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-white">
+                        ${data.map(v => `
+                            <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
+                                <td class="py-4 text-gray-500">${v.fecha}</td>
+                                <td class="py-4 font-bold">${v.cliente}</td>
+                                <td class="py-4 text-gray-400">${v.descripcion}</td>
+                                <td class="py-4 text-[#cda250] font-bold">$${v.valor_total.toLocaleString()}</td>
+                                <td class="py-4 text-emerald-400">$${v.abono.toLocaleString()}</td>
+                                <td class="py-4 ${v.saldo > 0 ? 'text-red-400 font-bold' : 'text-gray-500'}">$${v.saldo.toLocaleString()}</td>
+                                <td class="py-4">
+                                    <span class="px-2 py-0.5 text-[9px] uppercase font-bold rounded ${v.estado === 'Completada' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">
+                                        ${v.estado}
+                                    </span>
+                                </td>
+                                <td class="py-4">
+                                    ${v.saldo > 0 ? `<button onclick="abrirModalAbono(${v.id}, ${v.saldo})" class="text-[#cda250] hover:underline font-bold">+ ABONAR</button>` : '<span class="text-gray-600">PAGADO</span>'}
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <!-- MODAL REGISTRAR VENTA -->
+                <div id="modal-venta" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div class="bg-[#0a0a0a] p-8 w-[420px] border border-[#262118]">
+                        <h3 class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Registrar Venta</h3>
+                        
+                        <!-- Pestañas para elegir/crear Cliente -->
+                        <div class="flex border-b border-[#262118] mb-4">
+                            <button id="btn-tab-existente" onclick="switchModoCliente('existente')" class="w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]">Cliente Existente</button>
+                            <button id="btn-tab-nuevo" onclick="switchModoCliente('nuevo')" class="w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white">Nuevo Cliente</button>
+                        </div>
+
+                        <!-- Opción 1: Cliente Existente -->
+                        <div id="sec-cliente-existente" class="mb-4">
+                            <label class="block text-[9px] text-[#555] uppercase mb-1">Buscar y Seleccionar Cliente *</label>
+                            <select id="ven-cliente" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none">
+                                <option value="">-- Seleccionar cliente --</option>
+                                ${clientes.map(c => `<option value="${c.id}">${c.nombre} (${c.documento || 'S/D'})</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <!-- Opción 2: Registrar Cliente Nuevo sobre la marcha -->
+                        <div id="sec-cliente-nuevo" class="hidden mb-4 p-3 bg-[#121212] border border-[#262118] space-y-3">
+                            <input id="ven-nuevo-nombre" placeholder="Nombre completo *" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="ven-nuevo-doc" placeholder="Número de documento / Cédula" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="ven-nuevo-cel" placeholder="Celular / WhatsApp" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <label class="block text-[9px] text-[#555] uppercase mb-1">Producto de Inventario (Opcional)</label>
+                        <select id="ven-producto" onchange="autocompletarPrecio(this.value)" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none mb-4">
+                            <option value="">-- Selección manual --</option>
+                            ${inventario.map(i => `<option value="${i.id}" data-precio="${i.precio_venta}">${i.nombre} - $${i.precio_venta.toLocaleString()} [Stock: ${i.stock}]</option>`).join('')}
+                        </select>
+
+                        <input id="ven-descripcion" placeholder="Descripción de la venta *" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
+                        
+                        <div class="flex gap-4 mb-6">
+                            <input id="ven-total" type="number" placeholder="Valor Total ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="ven-abono" type="number" placeholder="Abono Inicial ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <button onclick="guardarVenta()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">REGISTRAR TRANSACCIÓN</button>
+                        <button onclick="document.getElementById('modal-venta').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- MODAL REGISTRAR ABONO -->
+                <div id="modal-abono" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div class="bg-[#0a0a0a] p-8 w-[320px] border border-[#262118]">
+                        <h3 class="text-xs uppercase tracking-widest text-[#cda250] mb-4 font-bold">Registrar Abono</h3>
+                        <input type="hidden" id="abono-venta-id">
+                        <p class="text-xs text-gray-400 mb-4">Deuda actual: <span id="abono-deuda-max" class="text-red-400 font-bold"></span></p>
+                        
+                        <input id="abono-monto" type="number" placeholder="Monto del abono ($)" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-6 text-xs text-white outline-none focus:border-[#cda250]">
+
+                        <button onclick="guardarAbono()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">REGISTRAR ABONO</button>
+                        <button onclick="document.getElementById('modal-abono').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
+                    </div>
+                </div>`;
+        }
+
+        let modoCliente = 'existente';
+
+        function switchModoCliente(modo) {
+            modoCliente = modo;
+            const btnExistente = document.getElementById('btn-tab-existente');
+            const btnNuevo = document.getElementById('btn-tab-nuevo');
+            const secExistente = document.getElementById('sec-cliente-existente');
+            const secNuevo = document.getElementById('sec-cliente-nuevo');
+
+            if (modo === 'existente') {
+                btnExistente.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]";
+                btnNuevo.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white";
+                secExistente.classList.remove('hidden');
+                secNuevo.classList.add('hidden');
+            } else {
+                btnNuevo.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]";
+                btnExistente.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white";
+                secNuevo.classList.remove('hidden');
+                secExistente.classList.add('hidden');
+            }
+        }
+
+        function abrirModalVenta() {
+            switchModoCliente('existente');
+            document.getElementById('ven-cliente').value = "";
+            document.getElementById('ven-nuevo-nombre').value = "";
+            document.getElementById('ven-nuevo-doc').value = "";
+            document.getElementById('ven-nuevo-cel').value = "";
+            document.getElementById('ven-producto').value = "";
+            document.getElementById('ven-descripcion').value = "";
+            document.getElementById('ven-total').value = "";
+            document.getElementById('ven-abono').value = "";
+            document.getElementById('modal-venta').classList.remove('hidden');
+        }
+
+        function autocompletarPrecio(invId) {
+            if (!invId) return;
+            const select = document.getElementById('ven-producto');
+            const option = select.options[select.selectedIndex];
+            const precio = option.getAttribute('data-precio');
+            const texto = option.text.split(' - $')[0];
+            
+            if (precio) document.getElementById('ven-total').value = precio;
+            if (texto) document.getElementById('ven-descripcion').value = texto;
+        }
+
+        async function guardarVenta() {
+            const data = {
+                inventario_id: document.getElementById('ven-producto').value || null,
+                descripcion: document.getElementById('ven-descripcion').value,
+                valor_total: document.getElementById('ven-total').value,
+                abono: document.getElementById('ven-abono').value || 0
+            };
+
+            if (modoCliente === 'existente') {
+                data.cliente_id = document.getElementById('ven-cliente').value;
+                if(!data.cliente_id) return alert('Selecciona un cliente.');
+            } else {
+                const nombre = document.getElementById('ven-nuevo-nombre').value;
+                if(!nombre) return alert('Ingresa el nombre del nuevo cliente.');
+                
+                data.nuevo_cliente = {
+                    nombre: nombre,
+                    documento: document.getElementById('ven-nuevo-doc').value,
+                    telefono: document.getElementById('ven-nuevo-cel').value
+                };
+            }
+
+            if(!data.descripcion || !data.valor_total) {
+                return alert('Descripción y valor total son obligatorios.');
+            }
+
+            await fetchAPI('/api/ventas', 'POST', data);
+            document.getElementById('modal-venta').classList.add('hidden');
+            renderModulo('ventas');
+        }
+
+        function abrirModalAbono(ventaId, saldo) {
+            document.getElementById('abono-venta-id').value = ventaId;
+            document.getElementById('abono-deuda-max').innerText = `$${saldo.toLocaleString()}`;
+            document.getElementById('abono-monto').value = "";
+            document.getElementById('modal-abono').classList.remove('hidden');
+        }
+
+        async function guardarAbono() {
+            const id = document.getElementById('abono-venta-id').value;
+            const abono = document.getElementById('abono-monto').value;
+            
+            if(!abono || abono <= 0) return alert('Ingresa un monto válido.');
+
+            await fetchAPI(`/api/ventas/${id}/abono`, 'PUT', { abono });
+            document.getElementById('modal-abono').classList.add('hidden');
+            renderModulo('ventas');
+        }
+    </script>
+</body>
+</html>
