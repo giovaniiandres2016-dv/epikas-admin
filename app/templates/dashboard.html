@@ -21,11 +21,17 @@
                 <p class="text-[9px] text-gray-500 text-center tracking-widest mt-1 uppercase">SISTEMA DE GESTIÓN</p>
             </div>
             <nav class="mt-6 px-4 space-y-2">
+                <button onclick="renderModulo('dashboard')" id="btn-dashboard" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
+                    <span>🚀</span> Resumen General
+                </button>
                 <button onclick="renderModulo('clientes')" id="btn-clientes" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
                     <span>👥</span> Clientes
                 </button>
                 <button onclick="renderModulo('inventario')" id="btn-inventario" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
                     <span>📦</span> Inventario
+                </button>
+                <button onclick="renderModulo('importaciones')" id="btn-importaciones" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
+                    <span>✈️</span> Importaciones y Cajas
                 </button>
                 <button onclick="renderModulo('ventas')" id="btn-ventas" class="nav-link w-full text-left px-4 py-3 text-xs tracking-wider uppercase font-semibold text-gray-400 hover:text-[#cda250] hover:bg-[#121212] transition-all flex items-center gap-3">
                     <span>💳</span> Ventas y Cuentas
@@ -42,7 +48,7 @@
     <!-- ÁREA PRINCIPAL -->
     <main class="flex-1 flex flex-col overflow-y-auto">
         <header class="p-6 border-b border-[#262118] bg-[#0a0a0a] flex justify-between items-center">
-            <h2 id="modulo-titulo" class="text-lg font-brand text-[#cda250] tracking-wider">CLIENTES</h2>
+            <h2 id="modulo-titulo" class="text-lg font-brand text-[#cda250] tracking-wider">RESUMEN GENERAL</h2>
             <div class="text-xs text-gray-500">
                 Usuario: <span id="username-display" class="text-white font-bold">Admin</span>
             </div>
@@ -61,28 +67,28 @@
                 window.location.href = '/';
                 return;
             }
-            document.getElementById('username-display').innerText = localStorage.getItem('username') || 'Usuario';
-            renderModulo('inventario');
+            renderModulo('dashboard');
         });
 
         function logout() {
-            localStorage.clear();
+            localStorage.removeItem('token');
             window.location.href = '/';
         }
 
         async function fetchAPI(endpoint, method = 'GET', body = null) {
             const token = localStorage.getItem('token');
-            const options = {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                }
+            const headers = { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
             };
+            const options = { method, headers };
             if (body) options.body = JSON.stringify(body);
             
             const res = await fetch(endpoint, options);
-            if (res.status === 401) logout();
+            if (res.status === 401) {
+                logout();
+                return;
+            }
             return res.json();
         }
 
@@ -91,19 +97,25 @@
             const btn = document.getElementById(`btn-${nombre}`);
             if(btn) btn.classList.add('text-[#cda250]', 'bg-[#121212]');
             
-            document.getElementById('modulo-titulo').innerText = nombre.toUpperCase();
+            document.getElementById('modulo-titulo').innerText = nombre === 'dashboard' ? 'RESUMEN GENERAL' : nombre.toUpperCase();
             const contenedor = document.getElementById('modulo-contenido');
             contenedor.innerHTML = '<p class="text-xs text-gray-500">Cargando...</p>';
 
-            if (nombre === 'clientes') {
+            if (nombre === 'dashboard') {
+                const data = await fetchAPI('/api/dashboard');
+                if (data) renderDashboard(data, contenedor);
+            } else if (nombre === 'clientes') {
                 const data = await fetchAPI('/api/clientes');
-                renderTablaClientes(data, contenedor);
+                if (data) renderTablaClientes(data, contenedor);
             } else if (nombre === 'inventario') {
                 const data = await fetchAPI('/api/inventario');
-                renderTablaInventario(data, contenedor);
+                if (data) renderTablaInventario(data, contenedor);
+            } else if (nombre === 'importaciones') {
+                const data = await fetchAPI('/api/importaciones');
+                if (data) renderTablaImportaciones(data, contenedor);
             } else if (nombre === 'ventas') {
                 const data = await fetchAPI('/api/ventas');
-                renderTablaVentas(data, contenedor);
+                if (data) renderTablaVentas(data, contenedor);
             }
         }
 
@@ -114,6 +126,83 @@
                 const texto = f.children[colIndex].innerText.toLowerCase();
                 f.style.display = texto.includes(query) ? '' : 'none';
             });
+        }
+
+        // --- MÓDULO DASHBOARD / RESUMEN GENERAL ---
+        function renderDashboard(data, contenedor) {
+            contenedor.innerHTML = `
+                <!-- Tarjetas de Métricas Principales (KPIs) -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-[#0a0a0a] border border-[#262118] p-5 rounded">
+                        <span class="text-[9px] uppercase tracking-widest text-gray-500 font-bold block mb-1">Ventas del Mes</span>
+                        <h3 class="text-xl font-bold text-white">$${data.ventas_mes.toLocaleString()}</h3>
+                        <span class="text-[10px] text-emerald-400 mt-2 block">📈 Ingresos totales acumulados</span>
+                    </div>
+                    <div class="bg-[#0a0a0a] border border-[#262118] p-5 rounded">
+                        <span class="text-[9px] uppercase tracking-widest text-gray-500 font-bold block mb-1">Cuentas por Cobrar</span>
+                        <h3 class="text-xl font-bold text-amber-400">$${data.total_por_cobrar.toLocaleString()}</h3>
+                        <span class="text-[10px] text-amber-500 mt-2 block">⚠️ Saldos pendientes de clientes</span>
+                    </div>
+                    <div class="bg-[#0a0a0a] border border-[#262118] p-5 rounded">
+                        <span class="text-[9px] uppercase tracking-widest text-gray-500 font-bold block mb-1">Ticket Promedio</span>
+                        <h3 class="text-xl font-bold text-white">$${Math.round(data.promedio_venta).toLocaleString()}</h3>
+                        <span class="text-[10px] text-[#cda250] mt-2 block">🎯 Valor medio por artículo</span>
+                    </div>
+                    <div class="bg-[#0a0a0a] border border-[#262118] p-5 rounded">
+                        <span class="text-[9px] uppercase tracking-widest text-gray-500 font-bold block mb-1">Cliente Destacado 🌟</span>
+                        <h3 class="text-base font-bold text-[#cda250] truncate">${data.cliente_destacado ? data.cliente_destacado.nombre : 'Sin datos'}</h3>
+                        <span class="text-[10px] text-gray-400 mt-2 block">Compras: $${data.cliente_destacado ? data.cliente_destacado.total.toLocaleString() : '0'}</span>
+                    </div>
+                </div>
+
+                <!-- Sección Inferior: Cuotas pendientes y Stock bajo -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Cuotas y Créditos -->
+                    <div class="lg:col-span-2 bg-[#0a0a0a] border border-[#262118] p-6 rounded">
+                        <h3 class="text-xs font-brand text-[#cda250] uppercase tracking-widest mb-4 font-bold">💳 Próximas Cuotas y Saldos Pendientes</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-[11px] border-collapse">
+                                <thead>
+                                    <tr class="text-[#555] border-b border-[#262118]">
+                                        <th class="pb-3">CLIENTE</th>
+                                        <th class="pb-3">DESCRIPCIÓN</th>
+                                        <th class="pb-3">TOTAL</th>
+                                        <th class="pb-3">ABONADO</th>
+                                        <th class="pb-3">SALDO</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="text-white">
+                                    ${data.cuotas_pendientes.map(v => `
+                                        <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
+                                            <td class="py-3 font-bold">${v.cliente}</td>
+                                            <td class="py-3 text-gray-400">${v.descripcion}</td>
+                                            <td class="py-3">$${v.valor_total.toLocaleString()}</td>
+                                            <td class="py-3 text-emerald-400">$${v.abono.toLocaleString()}</td>
+                                            <td class="py-3 text-red-400 font-bold">$${v.saldo.toLocaleString()}</td>
+                                        </tr>
+                                    `).join('') || '<tr><td colspan="5" class="py-4 text-center text-gray-500">No hay cuentas pendientes.</td></tr>'}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Alertas de Stock Bajo -->
+                    <div class="bg-[#0a0a0a] border border-[#262118] p-6 rounded">
+                        <h3 class="text-xs font-brand text-red-400 uppercase tracking-widest mb-4 font-bold">⚠️ Alertas de Stock Bajo</h3>
+                        <div class="space-y-3">
+                            ${data.stock_bajo.map(i => `
+                                <div class="p-3 bg-[#121212] border border-[#262118] flex justify-between items-center rounded">
+                                    <div>
+                                        <span class="text-white font-bold block text-[11px]">${i.nombre}</span>
+                                        <span class="text-[9px] text-gray-400">Talla: ${i.talla} | Ref: ${i.referencia}</span>
+                                    </div>
+                                    <span class="px-2 py-1 bg-red-950 text-red-400 border border-red-800 text-[9px] font-bold rounded">${i.stock} unids</span>
+                                </div>
+                            `).join('') || '<p class="text-xs text-gray-500 text-center py-4">Inventario en niveles óptimos.</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         // --- MÓDULO CLIENTES ---
@@ -140,7 +229,7 @@
                         ${data.map(c => `
                             <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
                                 <td class="py-4 font-bold">${c.nombre}</td>
-                                <td class="py-4 text-gray-400">${c.telefono}</td>
+                                <td class="py-4 text-gray-400">${c.telefono || 'S/T'}</td>
                                 <td class="py-4 text-gray-400">${c.ciudad}</td>
                                 <td class="py-4">${c.tallas}</td>
                                 <td class="py-4">${c.compras}</td>
@@ -154,7 +243,6 @@
                     </tbody>
                 </table>
 
-                <!-- MODAL CLIENTES -->
                 <div id="modal-cliente" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
                     <div class="bg-[#0a0a0a] p-8 w-[400px] border border-[#262118]">
                         <h3 id="modal-cli-titulo" class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Nuevo Cliente</h3>
@@ -194,7 +282,7 @@
             document.getElementById('cli-id').value = c.id;
             document.getElementById('cli-nombre').value = c.nombre;
             document.getElementById('cli-documento').value = c.documento === 'S/D' ? '' : c.documento;
-            document.getElementById('cli-telefono').value = c.telefono === 'S/T' ? '' : c.telefono;
+            document.getElementById('cli-telefono').value = c.telefono;
             document.getElementById('cli-ciudad').value = c.ciudad === 'S/C' ? '' : c.ciudad;
             document.getElementById('cli-calzado').value = c.talla_calzado;
             document.getElementById('cli-camiseta').value = c.talla_camiseta;
@@ -213,12 +301,10 @@
                 talla_camiseta: document.getElementById('cli-camiseta').value,
                 talla_jean: document.getElementById('cli-jean').value
             };
-            
             if(!data.nombre) return alert('El nombre es obligatorio.');
 
             const method = id ? 'PUT' : 'POST';
             const url = id ? `/api/clientes/${id}` : '/api/clientes';
-            
             await fetchAPI(url, method, data);
             document.getElementById('modal-cliente').classList.add('hidden');
             renderModulo('clientes');
@@ -241,7 +327,7 @@
                 <table id="tabla-inventario" class="w-full text-left text-[11px] border-collapse">
                     <thead>
                         <tr class="text-[#555] border-b border-[#262118]">
-                            <th class="pb-4">PRODUCTO (AUTOGENERADO)</th>
+                            <th class="pb-4">PRODUCTO</th>
                             <th class="pb-4">MARCA</th>
                             <th class="pb-4">REF</th>
                             <th class="pb-4">CATEGORÍA</th>
@@ -277,33 +363,26 @@
                     </tbody>
                 </table>
 
-                <!-- MODAL INVENTARIO -->
                 <div id="modal-inventario" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
                     <div class="bg-[#0a0a0a] p-8 w-[420px] border border-[#262118]">
                         <h3 id="modal-inv-titulo" class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Nuevo Producto</h3>
                         <input type="hidden" id="inv-id">
 
-                        <!-- Marca y Referencia -->
                         <div class="flex gap-4 mb-4">
                             <input id="inv-marca" oninput="actualizarNombreProducto()" placeholder="Marca (Ej: Nike, ÉPIKA) *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                             <input id="inv-referencia" oninput="actualizarNombreProducto()" placeholder="Referencia / SKU *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                         </div>
 
-                        <!-- Talla y Color -->
                         <div class="flex gap-4 mb-4">
                             <input id="inv-talla" placeholder="Talla (Ej: 40, M)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
-                            <input id="inv-color" oninput="actualizarNombreProducto()" placeholder="Color (Ej: Negro, Blanco)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="inv-color" oninput="actualizarNombreProducto()" placeholder="Color (Ej: Negro)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                         </div>
 
-                        <!-- Nombre Generado Automático (Read-only) -->
                         <div class="mb-4">
-                            <label class="block text-[9px] text-[#555] uppercase mb-1">Nombre Calculado del Producto</label>
                             <input id="inv-nombre" readonly placeholder="Se autogenera: Marca + Ref + Color" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-[#cda250] font-bold outline-none cursor-not-allowed">
                         </div>
-                        
-                        <!-- Categoría -->
+
                         <div class="mb-4">
-                            <label class="block text-[9px] text-[#555] uppercase mb-1">Categoría</label>
                             <select id="inv-categoria" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none focus:border-[#cda250]">
                                 <option value="Calzado">Calzado</option>
                                 <option value="Ropa">Ropa</option>
@@ -311,16 +390,13 @@
                             </select>
                         </div>
 
-                        <!-- Precios -->
                         <div class="flex gap-4 mb-4">
                             <input id="inv-precio-costo" type="number" placeholder="Precio Costo ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                             <input id="inv-precio-venta" type="number" placeholder="Precio Venta ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                         </div>
 
-                        <!-- Stock -->
                         <div class="mb-6">
-                            <label class="block text-[9px] text-[#555] uppercase mb-1">Stock Inicial</label>
-                            <input id="inv-stock" type="number" min="0" placeholder="0" class="w-full bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="inv-stock" type="number" min="0" placeholder="Stock" class="w-full bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
                         </div>
 
                         <button onclick="guardarProductoInventario()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">GUARDAR PRODUCTO</button>
@@ -329,14 +405,11 @@
                 </div>`;
         }
 
-        // Función para autogenerar el Nombre: Marca + Referencia + Color
         function actualizarNombreProducto() {
             const marca = document.getElementById('inv-marca').value.trim();
             const ref = document.getElementById('inv-referencia').value.trim();
             const color = document.getElementById('inv-color').value.trim();
-            
-            const partes = [marca, ref, color].filter(Boolean);
-            document.getElementById('inv-nombre').value = partes.join(' ');
+            document.getElementById('inv-nombre').value = [marca, ref, color].filter(Boolean).join(' ');
         }
 
         function abrirModalInventarioNuevo() {
@@ -382,221 +455,224 @@
                 precio_venta: document.getElementById('inv-precio-venta').value,
                 stock: document.getElementById('inv-stock').value
             };
-            
             if(!data.marca || !data.referencia) return alert('La marca y la referencia son obligatorias.');
 
             const method = id ? 'PUT' : 'POST';
             const url = id ? `/api/inventario/${id}` : '/api/inventario';
-            
             await fetchAPI(url, method, data);
             document.getElementById('modal-inventario').classList.add('hidden');
             renderModulo('inventario');
         }
 
         async function borrarProductoInventario(id) {
-            if(confirm('¿Eliminar producto del inventario?')) {
+            if(confirm('¿Eliminar producto?')) {
                 await fetchAPI(`/api/inventario/${id}`, 'DELETE');
                 renderModulo('inventario');
             }
         }
 
-        // --- MÓDULO VENTAS ---
-        async function renderTablaVentas(data, contenedor) {
-            const clientes = await fetchAPI('/api/clientes');
-            const inventario = await fetchAPI('/api/inventario');
-
+        // --- MÓDULO IMPORTACIONES ---
+        function renderTablaImportaciones(data, contenedor) {
             contenedor.innerHTML = `
                 <div class="flex justify-between items-center mb-4">
-                    <input type="text" id="buscador-ven" onkeyup="filtrarTabla('buscador-ven', 'tabla-ventas', 1)" placeholder="Buscar venta por cliente..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
-                    <button onclick="abrirModalVenta()" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ REGISTRAR VENTA</button>
+                    <input type="text" id="buscador-imp" onkeyup="filtrarTabla('buscador-imp', 'tabla-importaciones', 0)" placeholder="Buscar por código de caja o guía..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
+                    <button onclick="abrirModalImportacionNuevo()" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ REGISTRAR CAJA</button>
                 </div>
-                <table id="tabla-ventas" class="w-full text-left text-[11px] border-collapse">
+                <table id="tabla-importaciones" class="w-full text-left text-[11px] border-collapse">
                     <thead>
                         <tr class="text-[#555] border-b border-[#262118]">
-                            <th class="pb-4">FECHA</th>
-                            <th class="pb-4">CLIENTE</th>
-                            <th class="pb-4">DESCRIPCIÓN</th>
-                            <th class="pb-4">VALOR TOTAL</th>
-                            <th class="pb-4">ABONADO</th>
-                            <th class="pb-4">SALDO DEUDA</th>
+                            <th class="pb-4">CÓDIGO CAJA</th>
+                            <th class="pb-4">EMPRESA</th>
+                            <th class="pb-4">N° GUÍA</th>
+                            <th class="pb-4">ORIGEN</th>
+                            <th class="pb-4">PESO (LB)</th>
+                            <th class="pb-4">COSTO ($ USD)</th>
+                            <th class="pb-4">TRM</th>
+                            <th class="pb-4">COSTO ($ COP)</th>
                             <th class="pb-4">ESTADO</th>
                             <th class="pb-4">ACCIONES</th>
                         </tr>
                     </thead>
                     <tbody class="text-white">
-                        ${data.map(v => `
+                        ${data.map(i => `
                             <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
-                                <td class="py-4 text-gray-500">${v.fecha}</td>
-                                <td class="py-4 font-bold">${v.cliente}</td>
-                                <td class="py-4 text-gray-400">${v.descripcion}</td>
-                                <td class="py-4 text-[#cda250] font-bold">$${v.valor_total.toLocaleString()}</td>
-                                <td class="py-4 text-emerald-400">$${v.abono.toLocaleString()}</td>
-                                <td class="py-4 ${v.saldo > 0 ? 'text-red-400 font-bold' : 'text-gray-500'}">$${v.saldo.toLocaleString()}</td>
+                                <td class="py-4 font-bold text-[#cda250]">${i.codigo_caja}</td>
+                                <td class="py-4 text-gray-300 font-semibold">${i.empresa_transporte}</td>
+                                <td class="py-4 text-gray-400">${i.guia}</td>
+                                <td class="py-4 text-gray-400">${i.origen}</td>
+                                <td class="py-4 font-semibold">${i.peso_libras} Lb</td>
+                                <td class="py-4 text-gray-300">$${i.costo_usd.toFixed(2)} USD</td>
+                                <td class="py-4 text-gray-500">$${i.trm}</td>
+                                <td class="py-4 text-emerald-400 font-bold">$${Math.round(i.costo_flete_cop).toLocaleString()}</td>
                                 <td class="py-4">
-                                    <span class="px-2 py-0.5 text-[9px] uppercase font-bold rounded ${v.estado === 'Completada' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">
-                                        ${v.estado}
+                                    <span class="px-2 py-0.5 text-[9px] uppercase font-bold rounded ${
+                                        i.estado === 'Entregado' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+                                        i.estado === 'En Tránsito' ? 'bg-amber-950 text-amber-400 border border-amber-800' :
+                                        'bg-blue-950 text-blue-400 border border-blue-800'
+                                    }">
+                                        ${i.estado}
                                     </span>
                                 </td>
-                                <td class="py-4">
-                                    ${v.saldo > 0 ? `<button onclick="abrirModalAbono(${v.id}, ${v.saldo})" class="text-[#cda250] hover:underline font-bold">+ ABONAR</button>` : '<span class="text-gray-600">PAGADO</span>'}
+                                <td class="py-4 space-x-2">
+                                    <button onclick='abrirModalImportacionEditar(${JSON.stringify(i)})' class="text-[#cda250] hover:underline">EDITAR</button>
+                                    <button onclick="borrarImportacion(${i.id})" class="text-red-500 hover:text-red-300">BORRAR</button>
                                 </td>
                             </tr>`).join('')}
                     </tbody>
                 </table>
 
-                <!-- MODAL REGISTRAR VENTA -->
-                <div id="modal-venta" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-                    <div class="bg-[#0a0a0a] p-8 w-[420px] border border-[#262118]">
-                        <h3 class="text-xs uppercase tracking-widest text-[#cda250] mb-6 font-bold">Registrar Venta</h3>
+                <!-- MODAL IMPORTACIÓN -->
+                <div id="modal-importacion" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div class="bg-[#0a0a0a] p-8 w-[450px] border border-[#262118]">
+                        <h3 id="modal-imp-titulo" class="text-xs uppercase tracking-widest text-[#cda250] mb-4 font-bold">Registrar Caja de Importación</h3>
                         
-                        <!-- Pestañas para elegir/crear Cliente -->
-                        <div class="flex border-b border-[#262118] mb-4">
-                            <button id="btn-tab-existente" onclick="switchModoCliente('existente')" class="w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]">Cliente Existente</button>
-                            <button id="btn-tab-nuevo" onclick="switchModoCliente('nuevo')" class="w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white">Nuevo Cliente</button>
+                        <div class="mb-4 p-3 bg-[#121212] border border-[#262118] rounded">
+                            <label class="block text-[9px] text-[#cda250] uppercase font-bold mb-1">📄 Autocompletar desde Guía (PDF)</label>
+                            <input type="file" id="imp-archivo" onchange="procesarArchivoGuia(this)" accept=".pdf,.txt" class="w-full text-[10px] text-gray-400 file:mr-2 file:py-1 file:px-2 file:border-0 file:text-[10px] file:bg-[#262118] file:text-white hover:file:bg-[#cda250] hover:file:text-black">
                         </div>
 
-                        <!-- Opción 1: Cliente Existente -->
-                        <div id="sec-cliente-existente" class="mb-4">
-                            <label class="block text-[9px] text-[#555] uppercase mb-1">Buscar y Seleccionar Cliente *</label>
-                            <select id="ven-cliente" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none">
-                                <option value="">-- Seleccionar cliente --</option>
-                                ${clientes.map(c => `<option value="${c.id}">${c.nombre} (${c.documento || 'S/D'})</option>`).join('')}
+                        <input type="hidden" id="imp-id">
+
+                        <div class="flex gap-4 mb-4">
+                            <input id="imp-codigo" placeholder="Código Caja (Ej: C-2026-01) *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="imp-empresa" placeholder="Empresa / Casillero *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <div class="flex gap-4 mb-4">
+                            <input id="imp-guia" placeholder="N° Guía *" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="imp-origen" placeholder="Origen" value="EEUU" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <div class="flex gap-4 mb-4">
+                            <input id="imp-peso" type="number" step="0.01" placeholder="Peso (Libras / Lb)" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="imp-usd" type="number" step="0.01" oninput="calcularCOPImportacion()" placeholder="Costo ($ USD)" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                            <input id="imp-trm" type="number" step="0.01" oninput="calcularCOPImportacion()" placeholder="TRM" value="3950" class="w-1/3 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-[9px] text-[#555] uppercase mb-1">Costo Flete Calculado (COP $)</label>
+                            <input id="imp-cop-preview" readonly placeholder="$ 0" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-emerald-400 font-bold outline-none cursor-not-allowed">
+                            <input type="hidden" id="imp-cop">
+                        </div>
+
+                        <div class="mb-6">
+                            <select id="imp-estado" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none focus:border-[#cda250]">
+                                <option value="En Casillero">En Casillero</option>
+                                <option value="En Tránsito">En Tránsito</option>
+                                <option value="Entregado">Entregado</option>
                             </select>
                         </div>
 
-                        <!-- Opción 2: Registrar Cliente Nuevo sobre la marcha -->
-                        <div id="sec-cliente-nuevo" class="hidden mb-4 p-3 bg-[#121212] border border-[#262118] space-y-3">
-                            <input id="ven-nuevo-nombre" placeholder="Nombre completo *" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
-                            <input id="ven-nuevo-doc" placeholder="Número de documento / Cédula" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
-                            <input id="ven-nuevo-cel" placeholder="Celular / WhatsApp" class="w-full bg-transparent border-b border-[#262118] pb-1 text-xs text-white outline-none focus:border-[#cda250]">
-                        </div>
-
-                        <label class="block text-[9px] text-[#555] uppercase mb-1">Producto de Inventario (Opcional)</label>
-                        <select id="ven-producto" onchange="autocompletarPrecio(this.value)" class="w-full bg-[#121212] border border-[#262118] p-2 text-xs text-white outline-none mb-4">
-                            <option value="">-- Selección manual --</option>
-                            ${inventario.map(i => `<option value="${i.id}" data-precio="${i.precio_venta}">${i.nombre} - $${i.precio_venta.toLocaleString()} [Stock: ${i.stock}]</option>`).join('')}
-                        </select>
-
-                        <input id="ven-descripcion" placeholder="Descripción de la venta *" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-4 text-xs text-white outline-none focus:border-[#cda250]">
-                        
-                        <div class="flex gap-4 mb-6">
-                            <input id="ven-total" type="number" placeholder="Valor Total ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
-                            <input id="ven-abono" type="number" placeholder="Abono Inicial ($)" class="w-1/2 bg-transparent border-b border-[#262118] pb-2 text-xs text-white outline-none focus:border-[#cda250]">
-                        </div>
-
-                        <button onclick="guardarVenta()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">REGISTRAR TRANSACCIÓN</button>
-                        <button onclick="document.getElementById('modal-venta').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
-                    </div>
-                </div>
-
-                <!-- MODAL REGISTRAR ABONO -->
-                <div id="modal-abono" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-                    <div class="bg-[#0a0a0a] p-8 w-[320px] border border-[#262118]">
-                        <h3 class="text-xs uppercase tracking-widest text-[#cda250] mb-4 font-bold">Registrar Abono</h3>
-                        <input type="hidden" id="abono-venta-id">
-                        <p class="text-xs text-gray-400 mb-4">Deuda actual: <span id="abono-deuda-max" class="text-red-400 font-bold"></span></p>
-                        
-                        <input id="abono-monto" type="number" placeholder="Monto del abono ($)" class="w-full bg-transparent border-b border-[#262118] pb-2 mb-6 text-xs text-white outline-none focus:border-[#cda250]">
-
-                        <button onclick="guardarAbono()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">REGISTRAR ABONO</button>
-                        <button onclick="document.getElementById('modal-abono').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
+                        <button onclick="guardarImportacion()" class="bg-[#cda250] text-black px-4 py-2.5 w-full font-bold text-[10px] tracking-widest uppercase hover:bg-white transition-all">GUARDAR CAJA</button>
+                        <button onclick="document.getElementById('modal-importacion').classList.add('hidden')" class="text-gray-500 text-[10px] w-full mt-3 uppercase tracking-wider text-center block hover:text-white transition-all">Cancelar</button>
                     </div>
                 </div>`;
         }
 
-        let modoCliente = 'existente';
-
-        function switchModoCliente(modo) {
-            modoCliente = modo;
-            const btnExistente = document.getElementById('btn-tab-existente');
-            const btnNuevo = document.getElementById('btn-tab-nuevo');
-            const secExistente = document.getElementById('sec-cliente-existente');
-            const secNuevo = document.getElementById('sec-cliente-nuevo');
-
-            if (modo === 'existente') {
-                btnExistente.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]";
-                btnNuevo.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white";
-                secExistente.classList.remove('hidden');
-                secNuevo.classList.add('hidden');
-            } else {
-                btnNuevo.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-[#cda250] border-b-2 border-[#cda250]";
-                btnExistente.className = "w-1/2 py-1 text-[10px] font-bold uppercase text-gray-500 hover:text-white";
-                secNuevo.classList.remove('hidden');
-                secExistente.classList.add('hidden');
-            }
+        function abrirModalImportacionNuevo() {
+            document.getElementById('modal-imp-titulo').innerText = "Registrar Caja de Importación";
+            document.getElementById('imp-id').value = "";
+            document.getElementById('imp-codigo').value = "";
+            document.getElementById('imp-empresa').value = "";
+            document.getElementById('imp-guia').value = "";
+            document.getElementById('imp-origen').value = "Miami, FL";
+            document.getElementById('imp-peso').value = "";
+            document.getElementById('imp-usd').value = "";
+            document.getElementById('imp-trm').value = "3950";
+            document.getElementById('imp-cop').value = "";
+            document.getElementById('imp-cop-preview').value = "";
+            document.getElementById('imp-estado').value = "En Casillero";
+            document.getElementById('modal-importacion').classList.remove('hidden');
         }
 
-        function abrirModalVenta() {
-            switchModoCliente('existente');
-            document.getElementById('ven-cliente').value = "";
-            document.getElementById('ven-nuevo-nombre').value = "";
-            document.getElementById('ven-nuevo-doc').value = "";
-            document.getElementById('ven-nuevo-cel').value = "";
-            document.getElementById('ven-producto').value = "";
-            document.getElementById('ven-descripcion').value = "";
-            document.getElementById('ven-total').value = "";
-            document.getElementById('ven-abono').value = "";
-            document.getElementById('modal-venta').classList.remove('hidden');
+        function abrirModalImportacionEditar(i) {
+            document.getElementById('modal-imp-titulo').innerText = "Editar Caja de Importación";
+            document.getElementById('imp-id').value = i.id;
+            document.getElementById('imp-codigo').value = i.codigo_caja;
+            document.getElementById('imp-empresa').value = i.empresa_transporte;
+            document.getElementById('imp-guia').value = i.guia;
+            document.getElementById('imp-origen').value = i.origen;
+            document.getElementById('imp-peso').value = i.peso_libras;
+            document.getElementById('imp-usd').value = i.costo_usd;
+            document.getElementById('imp-trm').value = i.trm;
+            document.getElementById('imp-estado').value = i.estado;
+            calcularCOPImportacion();
+            document.getElementById('modal-importacion').classList.remove('hidden');
         }
 
-        function autocompletarPrecio(invId) {
-            if (!invId) return;
-            const select = document.getElementById('ven-producto');
-            const option = select.options[select.selectedIndex];
-            const precio = option.getAttribute('data-precio');
-            const texto = option.text.split(' - $')[0];
-            
-            if (precio) document.getElementById('ven-total').value = precio;
-            if (texto) document.getElementById('ven-descripcion').value = texto;
+        function calcularCOPImportacion() {
+            const usd = parseFloat(document.getElementById('imp-usd').value) || 0;
+            const trm = parseFloat(document.getElementById('imp-trm').value) || 0;
+            const totalCop = Math.round(usd * trm);
+            document.getElementById('imp-cop').value = totalCop;
+            document.getElementById('imp-cop-preview').value = `$ ${totalCop.toLocaleString()} COP`;
         }
 
-        async function guardarVenta() {
+        async function guardarImportacion() {
+            const id = document.getElementById('imp-id').value;
             const data = {
-                inventario_id: document.getElementById('ven-producto').value || null,
-                descripcion: document.getElementById('ven-descripcion').value,
-                valor_total: document.getElementById('ven-total').value,
-                abono: document.getElementById('ven-abono').value || 0
+                codigo_caja: document.getElementById('imp-codigo').value,
+                empresa_transporte: document.getElementById('imp-empresa').value,
+                guia: document.getElementById('imp-guia').value,
+                origen: document.getElementById('imp-origen').value,
+                peso_libras: document.getElementById('imp-peso').value,
+                costo_usd: document.getElementById('imp-usd').value,
+                trm: document.getElementById('imp-trm').value,
+                costo_flete_cop: document.getElementById('imp-cop').value,
+                estado: document.getElementById('imp-estado').value
             };
+            if(!data.codigo_caja || !data.guia) return alert('El código de caja y la guía son obligatorios.');
 
-            if (modoCliente === 'existente') {
-                data.cliente_id = document.getElementById('ven-cliente').value;
-                if(!data.cliente_id) return alert('Selecciona un cliente.');
-            } else {
-                const nombre = document.getElementById('ven-nuevo-nombre').value;
-                if(!nombre) return alert('Ingresa el nombre del nuevo cliente.');
-                
-                data.nuevo_cliente = {
-                    nombre: nombre,
-                    documento: document.getElementById('ven-nuevo-doc').value,
-                    telefono: document.getElementById('ven-nuevo-cel').value
-                };
-            }
-
-            if(!data.descripcion || !data.valor_total) {
-                return alert('Descripción y valor total son obligatorios.');
-            }
-
-            await fetchAPI('/api/ventas', 'POST', data);
-            document.getElementById('modal-venta').classList.add('hidden');
-            renderModulo('ventas');
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/api/importaciones/${id}` : '/api/importaciones';
+            await fetchAPI(url, method, data);
+            document.getElementById('modal-importacion').classList.add('hidden');
+            renderModulo('importaciones');
         }
 
-        function abrirModalAbono(ventaId, saldo) {
-            document.getElementById('abono-venta-id').value = ventaId;
-            document.getElementById('abono-deuda-max').innerText = `$${saldo.toLocaleString()}`;
-            document.getElementById('abono-monto').value = "";
-            document.getElementById('modal-abono').classList.remove('hidden');
+        async function borrarImportacion(id) {
+            if(confirm('¿Eliminar registro de importación?')) {
+                await fetchAPI(`/api/importaciones/${id}`, 'DELETE');
+                renderModulo('importaciones');
+            }
         }
 
-        async function guardarAbono() {
-            const id = document.getElementById('abono-venta-id').value;
-            const abono = document.getElementById('abono-monto').value;
-            
-            if(!abono || abono <= 0) return alert('Ingresa un monto válido.');
-
-            await fetchAPI(`/api/ventas/${id}/abono`, 'PUT', { abono });
-            document.getElementById('modal-abono').classList.add('hidden');
-            renderModulo('ventas');
+        // --- MÓDULO VENTAS ---
+        function renderTablaVentas(data, contenedor) {
+            contenedor.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <input type="text" id="buscador-ventas" onkeyup="filtrarTabla('buscador-ventas', 'tabla-ventas', 0)" placeholder="Buscar por cliente o descripción..." class="bg-[#121212] p-2 w-2/3 text-[10px] text-white border border-[#262118] outline-none">
+                    <button onclick="alert('Módulo de nueva venta rápido en desarrollo')" class="bg-[#cda250] text-black px-4 py-2 text-[10px] font-bold hover:bg-white transition-all">+ NUEVA VENTA</button>
+                </div>
+                <table id="tabla-ventas" class="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                        <tr class="text-[#555] border-b border-[#262118]">
+                            <th class="pb-4">CLIENTE</th>
+                            <th class="pb-4">DESCRIPCIÓN</th>
+                            <th class="pb-4">TOTAL</th>
+                            <th class="pb-4">ABONO</th>
+                            <th class="pb-4">SALDO</th>
+                            <th class="pb-4">ESTADO</th>
+                            <th class="pb-4">FECHA</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-white">
+                        ${data.map(v => `
+                            <tr class="border-b border-[#1a1a1a] hover:bg-[#121212]">
+                                <td class="py-4 font-bold">${v.cliente}</td>
+                                <td class="py-4 text-gray-400">${v.descripcion}</td>
+                                <td class="py-4">$${v.valor_total.toLocaleString()}</td>
+                                <td class="py-4 text-emerald-400">$${v.abono.toLocaleString()}</td>
+                                <td class="py-4 text-red-400 font-bold">$${v.saldo.toLocaleString()}</td>
+                                <td class="py-4">
+                                    <span class="px-2 py-0.5 text-[9px] uppercase font-bold rounded ${v.estado_venta === 'Completada' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}">
+                                        ${v.estado_venta}
+                                    </span>
+                                </td>
+                                <td class="py-4 text-gray-500">${v.fecha}</td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>`;
         }
     </script>
 </body>

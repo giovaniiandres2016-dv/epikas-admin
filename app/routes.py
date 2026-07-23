@@ -1,95 +1,125 @@
-from flask import Blueprint, request, jsonify, render_template
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-from datetime import datetime, timedelta
-from functools import wraps
-from .models import db, Usuario, Cliente, Inventario, Venta
+from datetime import datetime
+from flask import Blueprint, render_template, request, jsonify
+from sqlalchemy import func
+from werkzeug.security import check_password_hash
+import re
+from .models import db, Usuario, Cliente, Inventario, Venta, Importacion
 
 main_bp = Blueprint('main', __name__)
-SECRET_KEY = 'tu_clave_secreta_super_segura'
 
-# --- DECORADOR AUTENTICACIÓN JWT ---
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-        
-        if not token:
-            return jsonify({'message': 'Token no proporcionado'}), 401
-        
-        try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            current_user = Usuario.query.filter_by(id=data['id']).first()
-        except Exception:
-            return jsonify({'message': 'Token inválido o expirado'}), 401
-            
-        return f(current_user, *args, **kwargs)
-    return decorated
-
-# --- RUTAS DE VISTAS ---
+# --- VISTAS HTML ---
 @main_bp.route('/')
 def login_page():
-    return render_template('index.html')
+    return render_template('login.html')
 
 @main_bp.route('/dashboard')
-def dashboard_page():
+def dashboard():
     return render_template('dashboard.html')
 
-# --- AUTH API ---
+# --- AUTENTICACIÓN ---
 @main_bp.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
     username = data.get('username')
     password = data.get('password')
+
+    usuario = Usuario.query.filter_by(username=username).first()
+    if usuario and check_password_hash(usuario.password_hash, password):
+        return jsonify({'message': 'Login exitoso', 'token': 'epika-session-token'}), 200
     
-    user = Usuario.query.filter_by(username=username).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({'message': 'Credenciales incorrectas'}), 401
-        
-    token = jwt.encode({
-        'id': user.id,
-        'exp': datetime.utcnow() + timedelta(hours=8)
-    }, SECRET_KEY, algorithm="HS256")
+    return jsonify({'error': 'Credenciales incorrectas'}), 401
+
+# --- API DASHBOARD / RESUMEN GENERAL ---
+@main_bp.route('/api/dashboard', methods=['GET'])
+def get_dashboard_data():
+    # 1. Ventas del Mes (calculadas sobre el total de ventas registradas o filtradas por mes actual)
+    mes_actual = datetime.now().month
+    anio_actual = datetime.now().year
     
-    return jsonify({'token': token, 'username': user.username}), 200
+    ventas_totales = Venta.query.all()
+    ventas_mes = sum(v.valor_total for v in ventas_totales) # Se puede refinar si se almacena fecha con datetime real
+    
+    # 2. Total por Cobrar (Suma de saldos pendientes)
+    total_por_cobrar = sum(v.saldo for v in ventas_totales if v.saldo > 0)
+    
+    # 3. Ticket Promedio
+    promedio_venta = (ventas_mes / len(ventas_totales)) if ventas_totales else 0
+    
+    # 4. Cliente Destacado (Mayor volumen de compras acumuladas)
+    clientes_stats = db.session.query(
+        Cliente, 
+        func.sum(Venta.valor_total).label('total_compras')
+    ).join(Venta, Cliente.id == Venta.cliente_id).group_by(Cliente.id).order_by(func.sum(Venta.valor_total).desc()).first()
+    
+    cliente_destacado = None
+    if clientes_stats:
+        cli, tot = clientes_stats
+        cliente_destacado = {'nombre': cli.nombre, 'total': tot}
+
+    # 5. Próximas Cuotas y Saldos Pendientes (Ventas con saldo > 0)
+    cuotas_pendientes = []
+    for v in ventas_totales:
+        if v.saldo > 0:
+            cliente_nombre = v.cliente.nombre if v.cliente else 'Cliente General'
+            cuotas_pendientes.append({
+                'cliente': cliente_nombre,
+                'descripcion': v.descripcion or 'Sin descripción',
+                'valor_total': v.valor_total,
+                'abono': v.abono,
+                'saldo': v.saldo
+            })
+
+    # 6. Alertas de Stock Bajo (stock <= 2)
+    productos_bajo_stock = Inventario.query.filter(Inventario.stock <= 2).all()
+    stock_bajo = [{
+        'nombre': p.nombre,
+        'talla': p.talla,
+        'referencia': p.referencia,
+        'stock': p.stock
+    } for p in productos_bajo_stock]
+
+    return jsonify({
+        'ventas_mes': ventas_mes,
+        'total_por_cobrar': total_por_cobrar,
+        'promedio_venta': promedio_venta,
+        'cliente_destacado': cliente_destacado,
+        'cuotas_pendientes': cuotas_pendientes,
+        'stock_bajo': stock_bajo
+    }), 200
 
 # --- API CLIENTES ---
 @main_bp.route('/api/clientes', methods=['GET'])
-@token_required
-def get_clientes(current_user):
+def get_clientes():
     clientes = Cliente.query.all()
     resultado = []
     for c in clientes:
         total_compras = sum(v.valor_total for v in c.ventas)
-        deuda_total = sum(v.saldo for v in c.ventas if v.saldo > 0)
+        deuda_total = sum(v.saldo for v in c.ventas)
+        cantidad_compras = len(c.ventas)
+        tallas_str = f"{c.talla_calzado or '-'}/{c.talla_camiseta or '-'}/{c.talla_jean or '-'}"
+        
         resultado.append({
             'id': c.id,
-            'documento': c.documento or 'S/D',
             'nombre': c.nombre,
-            'telefono': c.telefono or 'S/T',
+            'documento': c.documento or 'S/D',
+            'telefono': c.telefono or '',
             'ciudad': c.ciudad or 'S/C',
-            'tallas': f"{c.talla_calzado or '-'}/{c.talla_camiseta or '-'}/{c.talla_jean or '-'}",
-            'talla_calzado': c.talla_calzado or '',
-            'talla_camiseta': c.talla_camiseta or '',
-            'talla_jean': c.talla_jean or '',
-            'compras': len(c.ventas),
+            'tallas': tallas_str,
+            'talla_calzado': c.talla_calzado,
+            'talla_camiseta': c.talla_camiseta,
+            'talla_jean': c.talla_jean,
+            'compras': cantidad_compras,
             'monto': total_compras,
-            'deuda': deuda_total,
-            'estado': c.estado
+            'deuda': deuda_total
         })
     return jsonify(resultado), 200
 
 @main_bp.route('/api/clientes', methods=['POST'])
-@token_required
-def create_cliente(current_user):
+def create_cliente():
     data = request.get_json() or {}
     nuevo = Cliente(
-        documento=data.get('documento'),
         nombre=data.get('nombre'),
+        documento=data.get('documento'),
         telefono=data.get('telefono'),
         ciudad=data.get('ciudad'),
         talla_calzado=data.get('talla_calzado'),
@@ -98,28 +128,24 @@ def create_cliente(current_user):
     )
     db.session.add(nuevo)
     db.session.commit()
-    return jsonify({'message': 'Cliente registrado exitosamente', 'id': nuevo.id, 'nombre': nuevo.nombre}), 201
+    return jsonify(nuevo.to_dict()), 201
 
 @main_bp.route('/api/clientes/<int:id>', methods=['PUT'])
-@token_required
-def update_cliente(current_user, id):
+def update_cliente(id):
     c = Cliente.query.get_or_404(id)
     data = request.get_json() or {}
-    
-    c.documento = data.get('documento', c.documento)
     c.nombre = data.get('nombre', c.nombre)
+    c.documento = data.get('documento', c.documento)
     c.telefono = data.get('telefono', c.telefono)
     c.ciudad = data.get('ciudad', c.ciudad)
     c.talla_calzado = data.get('talla_calzado', c.talla_calzado)
     c.talla_camiseta = data.get('talla_camiseta', c.talla_camiseta)
     c.talla_jean = data.get('talla_jean', c.talla_jean)
-    
     db.session.commit()
-    return jsonify({'message': 'Cliente actualizado'}), 200
+    return jsonify(c.to_dict()), 200
 
 @main_bp.route('/api/clientes/<int:id>', methods=['DELETE'])
-@token_required
-def delete_cliente(current_user, id):
+def delete_cliente(id):
     c = Cliente.query.get_or_404(id)
     db.session.delete(c)
     db.session.commit()
@@ -127,157 +153,211 @@ def delete_cliente(current_user, id):
 
 # --- API INVENTARIO ---
 @main_bp.route('/api/inventario', methods=['GET'])
-@token_required
-def get_inventario(current_user):
-    articulos = Inventario.query.all()
-    resultado = []
-    for a in articulos:
-        resultado.append({
-            'id': a.id,
-            'nombre': a.nombre,
-            'marca': a.marca or '-',
-            'referencia': a.referencia or 'S/R',
-            'categoria': a.categoria or 'General',
-            'talla': a.talla or '-',
-            'color': a.color or '-',
-            'precio_costo': a.precio_costo,
-            'precio_venta': a.precio_venta,
-            'stock': a.stock
-        })
-    return jsonify(resultado), 200
+def get_inventario():
+    items = Inventario.query.all()
+    return jsonify([i.to_dict() for i in items]), 200
 
 @main_bp.route('/api/inventario', methods=['POST'])
-@token_required
-def create_inventario(current_user):
+def create_inventario():
     data = request.get_json() or {}
-    
-    marca = data.get('marca', '').strip()
-    referencia = data.get('referencia', '').strip()
-    color = data.get('color', '').strip()
-    
-    # Nombre autogenerado: Marca + Referencia + Color
-    nombre_calculado = data.get('nombre') or f"{marca} {referencia} {color}".strip()
-    
     nuevo = Inventario(
-        nombre=nombre_calculado,
-        marca=marca,
-        referencia=referencia,
+        nombre=data.get('nombre'),
+        marca=data.get('marca', '-'),
+        referencia=data.get('referencia', 'S/R'),
         categoria=data.get('categoria', 'Calzado'),
-        talla=data.get('talla'),
-        color=color,
+        talla=data.get('talla', '-'),
+        color=data.get('color', '-'),
         precio_costo=float(data.get('precio_costo', 0)),
         precio_venta=float(data.get('precio_venta', 0)),
         stock=int(data.get('stock', 0))
     )
     db.session.add(nuevo)
     db.session.commit()
-    return jsonify({'message': 'Producto agregado al inventario'}), 201
+    return jsonify(nuevo.to_dict()), 201
 
 @main_bp.route('/api/inventario/<int:id>', methods=['PUT'])
-@token_required
-def update_inventario(current_user, id):
-    prod = Inventario.query.get_or_404(id)
+def update_inventario(id):
+    i = Inventario.query.get_or_404(id)
     data = request.get_json() or {}
-    
-    prod.marca = data.get('marca', prod.marca)
-    prod.referencia = data.get('referencia', prod.referencia)
-    prod.color = data.get('color', prod.color)
-    prod.nombre = data.get('nombre') or f"{prod.marca} {prod.referencia} {prod.color}".strip()
-    prod.categoria = data.get('categoria', prod.categoria)
-    prod.talla = data.get('talla', prod.talla)
-    prod.precio_costo = float(data.get('precio_costo', prod.precio_costo))
-    prod.precio_venta = float(data.get('precio_venta', prod.precio_venta))
-    prod.stock = int(data.get('stock', prod.stock))
-    
+    i.nombre = data.get('nombre', i.nombre)
+    i.marca = data.get('marca', i.marca)
+    i.referencia = data.get('referencia', i.referencia)
+    i.categoria = data.get('categoria', i.categoria)
+    i.talla = data.get('talla', i.talla)
+    i.color = data.get('color', i.color)
+    i.precio_costo = float(data.get('precio_costo', i.precio_costo))
+    i.precio_venta = float(data.get('precio_venta', i.precio_venta))
+    i.stock = int(data.get('stock', i.stock))
     db.session.commit()
-    return jsonify({'message': 'Producto actualizado'}), 200
+    return jsonify(i.to_dict()), 200
 
 @main_bp.route('/api/inventario/<int:id>', methods=['DELETE'])
-@token_required
-def delete_inventario(current_user, id):
-    prod = Inventario.query.get_or_404(id)
-    db.session.delete(prod)
+def delete_inventario(id):
+    i = Inventario.query.get_or_404(id)
+    db.session.delete(i)
     db.session.commit()
     return jsonify({'message': 'Producto eliminado'}), 200
 
 # --- API VENTAS ---
 @main_bp.route('/api/ventas', methods=['GET'])
-@token_required
-def get_ventas(current_user):
-    ventas = Venta.query.order_by(Venta.fecha.desc()).all()
+def get_ventas():
+    ventas = Venta.query.order_by(Venta.id.desc()).all()
     resultado = []
     for v in ventas:
+        cliente_nombre = v.cliente.nombre if v.cliente else 'Cliente General'
+        estado_venta = 'Completada' if v.saldo <= 0 else 'Pendiente'
         resultado.append({
             'id': v.id,
-            'tipo': v.tipo,
-            'cliente': v.cliente.nombre if v.cliente else 'Desconocido',
-            'cliente_id': v.cliente_id,
-            'descripcion': v.descripcion,
+            'cliente': cliente_nombre,
+            'descripcion': v.descripcion or 'Sin descripción',
             'valor_total': v.valor_total,
             'abono': v.abono,
             'saldo': v.saldo,
-            'estado': v.estado_venta,
-            'fecha': v.fecha.strftime('%d/%m/%Y')
+            'estado_venta': estado_venta,
+            'fecha': datetime.now().strftime('%Y-%m-%d') # Ajustar si el modelo guarda timestamp real
         })
     return jsonify(resultado), 200
 
 @main_bp.route('/api/ventas', methods=['POST'])
-@token_required
-def create_venta(current_user):
+def create_venta():
     data = request.get_json() or {}
-    
     cliente_id = data.get('cliente_id')
-    
-    # Crear cliente nuevo sobre la marcha si se ingresaron sus datos en la venta
-    nuevo_cliente_data = data.get('nuevo_cliente')
-    if nuevo_cliente_data and not cliente_id:
-        nuevo_c = Cliente(
-            nombre=nuevo_cliente_data.get('nombre'),
-            documento=nuevo_cliente_data.get('documento'),
-            telefono=nuevo_cliente_data.get('telefono')
-        )
-        db.session.add(nuevo_c)
-        db.session.flush() # Genera el ID del cliente antes de guardar la venta
-        cliente_id = nuevo_c.id
 
-    inventario_id = data.get('inventario_id')
+    if not cliente_id and data.get('nuevo_cliente'):
+        nc = data['nuevo_cliente']
+        nuevo_cli = Cliente(
+            nombre=nc.get('nombre'),
+            documento=nc.get('documento'),
+            telefono=nc.get('telefono')
+        )
+        db.session.add(nuevo_cli)
+        db.session.flush()
+        cliente_id = nuevo_cli.id
+
     valor_total = float(data.get('valor_total', 0))
     abono = float(data.get('abono', 0))
     saldo = valor_total - abono
-    
-    # Descuenta stock si se seleccionó un producto
-    if inventario_id:
-        prod = Inventario.query.get(inventario_id)
-        if prod and prod.stock > 0:
-            prod.stock -= 1
 
-    nueva = Venta(
-        tipo=data.get('tipo', 'Venta'),
+    nueva_v = Venta(
         cliente_id=cliente_id,
-        inventario_id=inventario_id,
-        descripcion=data.get('descripcion', ''),
+        inventario_id=data.get('inventario_id'),
+        descripcion=data.get('descripcion'),
         valor_total=valor_total,
         abono=abono,
-        saldo=saldo,
-        estado_venta='Pendiente' if saldo > 0 else 'Completada'
+        saldo=saldo
     )
-    
-    db.session.add(nueva)
+    db.session.add(nueva_v)
+
+    if data.get('inventario_id'):
+        inv = Inventario.query.get(data['inventario_id'])
+        if inv and inv.stock > 0:
+            inv.stock -= 1
+
     db.session.commit()
-    return jsonify({'message': 'Transacción registrada correctamente'}), 201
+    return jsonify(nueva_v.to_dict()), 201
 
 @main_bp.route('/api/ventas/<int:id>/abono', methods=['PUT'])
-@token_required
-def abonar_venta(current_user, id):
-    venta = Venta.query.get_or_404(id)
+def abono_venta(id):
+    v = Venta.query.get_or_404(id)
     data = request.get_json() or {}
     monto_abono = float(data.get('abono', 0))
-    
-    venta.abono += monto_abono
-    venta.saldo = venta.valor_total - venta.abono
-    if venta.saldo <= 0:
-        venta.saldo = 0
-        venta.estado_venta = 'Completada'
-        
+
+    v.abono += monto_abono
+    v.saldo = max(0.0, v.valor_total - v.abono)
     db.session.commit()
-    return jsonify({'message': 'Abono registrado con éxito'}), 200
+    return jsonify(v.to_dict()), 200
+
+# --- API IMPORTACIONES ---
+@main_bp.route('/api/importaciones', methods=['GET'])
+def get_importaciones():
+    imps = Importacion.query.order_by(Importacion.id.desc()).all()
+    return jsonify([i.to_dict() for i in imps]), 200
+
+@main_bp.route('/api/importaciones', methods=['POST'])
+def create_importacion():
+    data = request.get_json() or {}
+    nueva = Importacion(
+        codigo_caja=data.get('codigo_caja'),
+        guia=data.get('guia'),
+        empresa_transporte=data.get('empresa_transporte'),
+        origen=data.get('origen', 'EEUU'),
+        peso_libras=float(data.get('peso_libras', 0.0)),
+        costo_usd=float(data.get('costo_usd', 0.0)),
+        trm=float(data.get('trm', 0.0)),
+        costo_flete_cop=float(data.get('costo_flete_cop', 0.0)),
+        estado=data.get('estado', 'En Tránsito'),
+        fecha_llegada=data.get('fecha_llegada')
+    )
+    db.session.add(nueva)
+    db.session.commit()
+    return jsonify(nueva.to_dict()), 201
+
+@main_bp.route('/api/importaciones/<int:id>', methods=['PUT'])
+def update_importacion(id):
+    imp = Importacion.query.get_or_404(id)
+    data = request.get_json() or {}
+    imp.codigo_caja = data.get('codigo_caja', imp.codigo_caja)
+    imp.guia = data.get('guia', imp.guia)
+    imp.empresa_transporte = data.get('empresa_transporte', imp.empresa_transporte)
+    imp.origen = data.get('origen', imp.origen)
+    imp.peso_libras = float(data.get('peso_libras', imp.peso_libras))
+    imp.costo_usd = float(data.get('costo_usd', imp.costo_usd))
+    imp.trm = float(data.get('trm', imp.trm))
+    imp.costo_flete_cop = float(data.get('costo_flete_cop', imp.costo_flete_cop))
+    imp.estado = data.get('estado', imp.estado)
+    imp.fecha_llegada = data.get('fecha_llegada', imp.fecha_llegada)
+    db.session.commit()
+    return jsonify(imp.to_dict()), 200
+
+@main_bp.route('/api/importaciones/<int:id>', methods=['DELETE'])
+def delete_importacion(id):
+    imp = Importacion.query.get_or_404(id)
+    db.session.delete(imp)
+    db.session.commit()
+    return jsonify({'message': 'Importación eliminada'}), 200
+
+@main_bp.route('/api/parse-guia', methods=['POST'])
+def parse_guia():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Sin archivo'}), 400
+    file = request.files['file']
+    text_content = ""
+
+    if file.filename.lower().endswith('.pdf'):
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(file)
+            for page in reader.pages:
+                text_content += (page.extract_text() or "") + "\n"
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+    else:
+        text_content = file.read().decode('utf-8', errors='ignore')
+
+    guia_match = re.search(r'(?:Gu[íi]a|Tracking|#|Waybill)[:\s]*([A-Z0-9]{8,20})', text_content, re.IGNORECASE)
+    if not guia_match:
+        guia_match = re.search(r'\b(1Z[A-Z0-9]{16}|TBA[0-9]{12})\b', text_content, re.IGNORECASE)
+
+    peso_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:lbs?|libras?|lb)', text_content, re.IGNORECASE)
+    peso_lbs = float(peso_match.group(1)) if peso_match else 0.0
+
+    empresa = ''
+    if re.search(r'coordinadora', text_content, re.IGNORECASE):
+        empresa = 'Coordinadora'
+    elif re.search(r'interrapidisimo', text_content, re.IGNORECASE):
+        empresa = 'Interrapidísimo'
+    elif re.search(r'servientrega', text_content, re.IGNORECASE):
+        empresa = 'Servientrega'
+    elif re.search(r'dhl', text_content, re.IGNORECASE):
+        empresa = 'DHL'
+    elif re.search(r'fedex', text_content, re.IGNORECASE):
+        empresa = 'FedEx'
+
+    return jsonify({
+        'success': True,
+        'extracted': {
+            'guia': guia_match.group(1) if guia_match else '',
+            'peso_libras': peso_lbs,
+            'empresa_transporte': empresa
+        }
+    }), 200
